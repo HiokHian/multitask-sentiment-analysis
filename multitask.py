@@ -63,15 +63,15 @@ import sys
 # EXPECTED COMMAND: python multitask.py polarity,subjectivity 16 False
 TASKS = sys.argv[1].split(",")  # change this
 BATCH_SIZE = int(sys.argv[2])
-MULTIPLEXING = bool(sys.argv[2])
-
+MULTIPLEXING = sys.argv[2] == 'True'
+GPU_NUM = 1
 print(
     f"RUNNING: {TASKS} TASKS with BATCH SIZE {BATCH_SIZE}; Using Multiplexing: {MULTIPLEXING}"
 )
 
 
 train_dataset = MultiTaskGoEmotionDataset(train_encodings, y_train, tasks=TASKS)
-val_dataset = MultiTaskGoEmotionDataset(valid_encodings, y_valid, tasks=TASKS)
+val_dataset = MultiTaskCrawledDataset(valid_encodings, y_valid, tasks=TASKS)
 
 train_loader = DataLoader(
     train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=8
@@ -101,31 +101,32 @@ task_to_class_weights = {}
 for task in TASKS:
     task_to_class_weights[task] = torch.FloatTensor(
         get_class_weights(*task_labels_mapping_dict[task], y_train)
-    ).to("cuda:1")
+    ).to(f"cuda:{GPU_NUM}")
+
 
 metrics = {}
 for task in TASKS:
     metrics[task] = {}
     metrics[task]["F1Score"] = (
-        MultilabelF1Score(num_labels=7).to("cuda:1")
+        MultilabelF1Score(num_labels=7).to(f"cuda:{GPU_NUM}")
         if task == "emotion"
-        else BinaryF1Score().to("cuda:1")
+        else BinaryF1Score().to(f"cuda:{GPU_NUM}")
         if task == "subjectivity"
-        else MulticlassF1Score(num_classes=3).to("cuda:1")
+        else MulticlassF1Score(num_classes=3).to(f"cuda:{GPU_NUM}")
     )
     metrics[task]["Recall"] = (
-        MultilabelPrecision(num_labels=7).to("cuda:1")
+        MultilabelPrecision(num_labels=7).to(f"cuda:{GPU_NUM}")
         if task == "emotion"
-        else BinaryPrecision().to("cuda:1")
+        else BinaryPrecision().to(f"cuda:{GPU_NUM}")
         if task == "subjectivity"
-        else MulticlassPrecision(num_classes=3).to("cuda:1")
+        else MulticlassPrecision(num_classes=3).to(f"cuda:{GPU_NUM}")
     )
     metrics[task]["Precision"] = (
-        MultilabelRecall(num_labels=7).to("cuda:1")
+        MultilabelRecall(num_labels=7).to(f"cuda:{GPU_NUM}")
         if task == "emotion"
-        else BinaryRecall().to("cuda:1")
+        else BinaryRecall().to(f"cuda:{GPU_NUM}")
         if task == "subjectivity"
-        else MulticlassRecall(num_classes=3).to("cuda:1")
+        else MulticlassRecall(num_classes=3).to(f"cuda:{GPU_NUM}")
     )
 
 model = Model(
@@ -150,7 +151,7 @@ tensorboard_logger = TensorBoardLogger(
     save_dir=f'{"_".join(TASKS)}/{now}', name=f"logs_{now}_{BATCH_SIZE}"
 )
 early_stopping = EarlyStopping(monitor="val_averaged_loss", patience=10)
-metric_to_track = f"{TASKS[0]}_averaged_f1_val"
+metric_to_track = f"averaged_f1_val"
 checkpoint_callback = ModelCheckpoint(
     save_top_k=1,
     monitor="val_averaged_loss",
@@ -163,7 +164,7 @@ checkpoint_callback = ModelCheckpoint(
 # TODO: add model checkpoint callback and use it to monitor F1 score (needs to be done after adding evaluation metrics); run a few times to ensure model is being saved in the directory https://pytorch-lightning.readthedocs.io/en/stable/api/pytorch_lightning.callbacks.ModelCheckpoint.html#pytorch_lightning.callbacks.ModelCheckpoint
 trainer = pl.Trainer(
     accelerator="gpu",
-    devices=[1],
+    devices=[GPU_NUM],
     callbacks=[checkpoint_callback, lr_monitor, early_stopping],
     logger=tensorboard_logger,
     max_epochs=20,

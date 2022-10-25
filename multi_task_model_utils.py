@@ -40,14 +40,14 @@ class BERTBackboneMultiTaskModel(torch.nn.Module):
             [[task, MLPClassifier(task)] for task in tasks]
         )
 
-    def forward(self, input_ids, attention_mask, tasks):
+    def forward(self, input_ids, attention_mask, tasks, split):
         bert_output = self.bert_backbone(
             input_ids=input_ids, attention_mask=attention_mask
         )
         hidden_state = bert_output[0]
         x = hidden_state[:, 0]
-        if not self.multiplexing:  # if not multiplexing, pass through all MLPs
-            return {task: self.classifiers[task](x) for task in tasks}
-        else:  # if multiplexing then only pass through relevant MLP
+        if split == 'train' and self.multiplexing:  # if multiplexing then only pass through relevant MLP  
             task = tasks[0]
             return {task: self.classifiers[task](x)}
+        else: # if not multiplexing, pass through all MLPs
+            return {task: self.classifiers[task](x) for task in tasks}

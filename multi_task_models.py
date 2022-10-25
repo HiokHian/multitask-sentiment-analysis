@@ -61,7 +61,6 @@ class Model(pl.LightningModule):
         ]  # generate random intervals for each task; for 3 datasets, this will be [0.33, 0.66, 1.0]
 
 
-
     def forward(self, input_ids, attention_mask, tasks):
         return self.model(input_ids, attention_mask, tasks)
 
@@ -70,12 +69,12 @@ class Model(pl.LightningModule):
         return loss
 
     def _step(self, batch, batch_idx, split):
-        if self.multiplexing:
+        if split == 'train' and self.multiplexing:
             # draw random number and pick a single task
             random_sample = random.random()
             idx = bisect.bisect_left(self.random_intervals, random_sample)
             tasks = [self.idx_to_class_mapping[idx]]
-        else:
+        else: # if validation or test or not multiplexing
             tasks = self.tasks
 
         # unpack all tasks if not multiplexing, otherwise, unpack only that one task
@@ -86,7 +85,7 @@ class Model(pl.LightningModule):
         )
 
         preds = self.model(
-            input_ids, attention_mask, [task for task in tasks]
+            input_ids, attention_mask, [task for task in tasks], split = split
         )  # output will either be dictionary (not multiplexing) or just one output (multiplexing)
         losses = {}
         metrics = {}
@@ -98,7 +97,7 @@ class Model(pl.LightningModule):
             elif task == "subjectivity":
                 losses[task] = self.losses[task](preds[task], labels[task])
             elif task == "emotion":
-                loss = (
+                losses[task] = (
                     self.losses[task](preds[task], labels[task])
                     * self.task_to_class_weights[task]
                 ).mean()
@@ -110,7 +109,8 @@ class Model(pl.LightningModule):
             metrics[task]["f1"] = f1
             metrics[task]["recall"] = recall
             metrics[task]["precision"] = precision
-
+        loss = sum(losses.values())
+        self.log(f"{split}_averaged_loss", loss)
         averaged_metrics = {}
         for metric_name in metrics[tasks[0]].keys():
             averaged_metrics[metric_name] = []
@@ -122,9 +122,6 @@ class Model(pl.LightningModule):
                 on_epoch=True,
                 prog_bar=True,
             )
-
-        loss = sum(losses.values())
-        self.log(f"{split}_averaged_loss", loss)
 
         return loss
 
@@ -150,7 +147,7 @@ class Model(pl.LightningModule):
         loss = self._step(batch, batch_idx, split="val")
 
     def test_step(self, batch, batch_idx):
-        loss = self._step(batch, batch_idx, split="test")
+        self._step(batch, batch_idx, split="test")
 
     def configure_optimizers(self):
         # TODO: include differential learning rate https://github.com/Lightning-AI/lightning/issues/2005

@@ -424,7 +424,6 @@ class MultiTaskCrawledDataset(Dataset):
                 item[f"{task}_labels"] = torch.tensor(
                     [self.task_mapping[task][self.labels[idx][0]]]
                 )
-
         return item
 
     def __len__(self):
